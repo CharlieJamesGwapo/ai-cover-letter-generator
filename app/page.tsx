@@ -1,65 +1,174 @@
-import Image from "next/image";
+'use client';
+
+import { useState, useEffect } from 'react';
+import { v4 as uuidv4 } from 'uuid';
+import { JobDescriptionInput } from '@/components/JobDescriptionInput';
+import { UserInfoForm } from '@/components/UserInfoForm';
+import { ToneSelector } from '@/components/ToneSelector';
+import { GenerateButton } from '@/components/GenerateButton';
+import { CoverLetterPreview } from '@/components/CoverLetterPreview';
+import { CoverLetter, UserInfo, Tone } from '@/lib/types';
+import { generateCoverLetter } from '@/lib/openai';
+import { storageUtils } from '@/lib/storage';
 
 export default function Home() {
-  return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+  const [jobDescription, setJobDescription] = useState('');
+  const [userInfo, setUserInfo] = useState<UserInfo>({
+    name: '',
+    email: '',
+    phone: '',
+    position: '',
+  });
+  const [tone, setTone] = useState<Tone>('professional');
+  const [generatedLetter, setGeneratedLetter] = useState<CoverLetter | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const handleGenerate = async () => {
+    setError('');
+
+    if (!userInfo.name || !userInfo.email || !userInfo.phone || !userInfo.position) {
+      setError('Please fill in all required fields.');
+      return;
+    }
+
+    if (!jobDescription.trim()) {
+      setError('Please provide a job description.');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const apiKey = storageUtils.getApiKey();
+      if (!apiKey) {
+        setError('OpenAI API key not configured. Please set it in settings.');
+        setLoading(false);
+        return;
+      }
+
+      const content = await generateCoverLetter(jobDescription, userInfo, tone, apiKey);
+
+      const letter: CoverLetter = {
+        id: uuidv4(),
+        jobDescription,
+        userInfo,
+        tone,
+        content,
+        createdAt: Date.now(),
+      };
+
+      setGeneratedLetter(letter);
+      storageUtils.saveLetter(letter);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to generate cover letter');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRegenerate = async () => {
+    if (!generatedLetter) return;
+
+    setLoading(true);
+
+    try {
+      const apiKey = storageUtils.getApiKey();
+      const content = await generateCoverLetter(
+        generatedLetter.jobDescription,
+        generatedLetter.userInfo,
+        tone,
+        apiKey
+      );
+
+      const updatedLetter: CoverLetter = {
+        ...generatedLetter,
+        tone,
+        content,
+      };
+
+      setGeneratedLetter(updatedLetter);
+      storageUtils.saveLetter(updatedLetter);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to regenerate cover letter');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSave = (content: string) => {
+    if (!generatedLetter) return;
+
+    const updatedLetter = { ...generatedLetter, content };
+    setGeneratedLetter(updatedLetter);
+    storageUtils.saveLetter(updatedLetter);
+  };
+
+  if (!mounted) {
+    return null;
+  }
+
+  if (generatedLetter) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <button
+          onClick={() => setGeneratedLetter(null)}
+          className="mb-6 text-blue-600 dark:text-blue-400 hover:underline"
+        >
+          ← Back to Generator
+        </button>
+
+        <CoverLetterPreview
+          letter={generatedLetter}
+          onSave={handleSave}
+          onRegenerate={handleRegenerate}
+          regenerating={loading}
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="mb-8">
+        <h1 className="text-4xl font-bold text-gray-900 dark:text-gray-100 mb-2">
+          Generate Your Cover Letter
+        </h1>
+        <p className="text-lg text-gray-600 dark:text-gray-400">
+          Create a compelling cover letter tailored to your dream job in seconds.
+        </p>
+      </div>
+
+      {error && (
+        <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400">
+          {error}
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+      )}
+
+      <div className="space-y-8 bg-gray-50 dark:bg-gray-900/50 p-6 rounded-lg border border-gray-200 dark:border-gray-800">
+        <JobDescriptionInput value={jobDescription} onChange={setJobDescription} />
+
+        <div className="border-t border-gray-200 dark:border-gray-800 pt-8">
+          <UserInfoForm value={userInfo} onChange={setUserInfo} />
         </div>
-      </main>
+
+        <div className="border-t border-gray-200 dark:border-gray-800 pt-8">
+          <ToneSelector value={tone} onChange={setTone} />
+        </div>
+
+        <div className="border-t border-gray-200 dark:border-gray-800 pt-8">
+          <GenerateButton
+            onClick={handleGenerate}
+            loading={loading}
+            disabled={!userInfo.name || !userInfo.email || !userInfo.phone || !jobDescription}
+          />
+        </div>
+      </div>
     </div>
   );
 }
